@@ -13,7 +13,16 @@ splunk_install_type: undefined # There are two ways to configure this. The easie
 splunk_install_path: /opt # Base directory on the operating system to which splunk should be installed
 splunk_nix_user: splunk
 splunk_nix_group: splunk
-splunk_generate_selfsigned_certs: true
+# Sets up splunk-web with a self-signed certificate
+splunk_generate_selfsigned_certs: false # Configure splunk-web with a self-signed certificate
+splunk_certificate_key_password: password123 # Use ansible-vault encrypt_string, e.g. ansible-vault encrypt_string --ask-vault-pass 'var_value_to_encrypt' --name 'var_name'
+splunk_certificate_csr_country: US # Country: e.g US
+splunk_certificate_csr_state: California # State e.g. California
+splunk_certificate_csr_locality: "San Francisco" # Locality e.g. San Francisco
+splunk_certificate_csr_org: "ACME, INC." # Organization name, e.g. ACME, INC.
+splunk_certificate_csr_ou: "IT" # OrganizationalUnit, e.g. IT
+splunk_certificate_csr_cn: "{{ ansible_hostname }}" # Common Name for this service typically the hostname
+splunk_certificate_csr_path: ~/ # where to store the CSR
 splunk_uri_lm: undefined
 splunk_uri_cm: undefined
 splunk_uri_ds: undefined # e.g. mydeploymentserver.mydomain.com:8089 ; Note that you must also configure the clientName var under either group_vars or host_vars for deploymentclient.conf to be configured
