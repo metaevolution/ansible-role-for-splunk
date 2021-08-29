@@ -1,0 +1,131 @@
+- name: Execute this block only when splunk_admin_password has been configured
+  block:
+  - name: stop splunk
+    service:
+      name: "{{ splunk_service }}"
+      state: stopped
+    become: true
+
+  - name: Creates certs directory
+    file:
+      path: "{{ splunk_home }}/etc/auth/mycerts/"
+      state: directory
+      owner: "{{ splunk_nix_user }}"
+      group: "{{ splunk_nix_user }}"
+      mode: 0760
+    become: yes
+
+  - name: Generate CA cert private key
+    command: "{{ splunk_home }}/bin/splunk cmd openssl genrsa -aes256 -out myCAPrivateKey.key -passout pass:password123 2048"
+    args:
+      chdir: "{{ splunk_home }}/etc/auth/mycerts/"
+    become: true
+    no_log: false
+
+  - name: Generate self-signed CA cert CSR
+    command: "{{ splunk_home }}/bin/splunk cmd openssl req -new -key myCAPrivateKey.key -out myCACertificate.csr -subj '/C=US/ST=Colorado/L=Denver/O=Acme/OU=IT/CN={{ansible_hostname}}' -passin pass:password123"
+    args:
+      chdir: "{{ splunk_home }}/etc/auth/mycerts/"  
+    become: true
+    no_log: false  
+
+  - name: Sign self-signed CA cert
+    command: "{{ splunk_home }}/bin/splunk cmd openssl x509 -req -in myCACertificate.csr -signkey myCAPrivateKey.key -out myCACertificate.pem -days 3650  -passin pass:password123"
+    args:
+      chdir: "{{ splunk_home }}/etc/auth/mycerts/"
+    become: true
+    no_log: false  
+
+  - name: Generate private key for web cert
+    command: "{{ splunk_home }}/bin/splunk cmd openssl genrsa -aes256 -out mySplunkWebPrivateKey.key -passout pass:password123 2048 "
+    args:
+      chdir: "{{ splunk_home }}/etc/auth/mycerts/"
+    become: true
+    no_log: false      
+
+  - name: Remove password from web private key
+    command: "{{ splunk_home }}/bin/splunk cmd openssl rsa -in mySplunkWebPrivateKey.key -out mySplunkWebPrivateKey.key   -passin pass:password123"
+    args:
+      chdir: "{{ splunk_home }}/etc/auth/mycerts/"
+    become: true
+    no_log: false        
+
+  - name: Generate CSR for Web cert
+    command: "{{ splunk_home }}/bin/splunk cmd openssl req -new -key mySplunkWebPrivateKey.key -out mySplunkWebCert.csr -subj '/C=US/ST=Colorado/L=Denver/O=Acme/OU=IT/CN={{ansible_hostname}}'"
+    args:
+      chdir: "{{ splunk_home }}/etc/auth/mycerts/"
+    become: true
+    no_log: false          
+
+  - name: Sign self-siged Web cert
+    command: "{{ splunk_home }}/bin/splunk  cmd openssl x509 -req -in mySplunkWebCert.csr -CA myCACertificate.pem -CAkey myCAPrivateKey.key -CAcreateserial -out mySplunkWebCert.pem -days 1095  -passin pass:password123 "
+    args:
+      chdir: "{{ splunk_home }}/etc/auth/mycerts/"
+    become: true
+    no_log: false           
+
+  - name: Create Cert Chain
+    shell: "cat mySplunkWebCert.pem myCACertificate.pem > mySplunkWebCertificate.pem"
+    args:
+      chdir: "{{ splunk_home }}/etc/auth/mycerts/"
+    become: true
+    no_log: false           
+
+  - name: Enable SplunkWeb SSL
+    ini_file:
+      path: "{{ splunk_home }}/etc/system/local/web.conf"
+      section: settings
+      option: enableSplunkWebSSL
+      value: "true"
+      owner: "{{ splunk_nix_user }}"
+      group: "{{ splunk_nix_group }}"
+      mode: 0644
+    become: true
+    
+  - name: Set SplunkWeb private key
+    ini_file:
+      path: "{{ splunk_home }}/etc/system/local/web.conf"
+      section: settings
+      option: privKeyPath
+      value: "etc/auth/mycerts/mySplunkWebPrivateKey.key"
+      owner: "{{ splunk_nix_user }}"
+      group: "{{ splunk_nix_group }}"
+      mode: 0644
+    become: true  
+
+  - name: Set SplunkWeb public cert
+    ini_file:
+      path: "{{ splunk_home }}/etc/system/local/web.conf"
+      section: settings
+      option: serverCert
+      value: "etc/auth/mycerts/mySplunkWebCertificate.pem"
+      owner: "{{ splunk_nix_user }}"
+      group: "{{ splunk_nix_group }}"
+      mode: 0644
+    become: true  
+
+  - name: fix file permissions
+    file:
+      path: "{{ splunk_home }}/etc/auth/mycerts/"
+      owner: "{{ splunk_nix_user }}"
+      group: "{{ splunk_nix_group }}"
+      mode: 0740
+      recurse: true
+      state: directory    
+    become: true
+    notify: "restart splunk"
+
+  - name: fix file permissions
+    file:
+      path: "{{ splunk_home }}/etc/auth/mycerts/{{ item }}"
+      state: absent   
+    with_items:
+      - myCACertificate.csr
+      - myCACertificate.srl
+      - mySplunkWebCert.csr
+      - mySplunkWebCert.pem
+    become: true
+  when:
+    - splunk_generate_selfsigned_certs|bool == true
+
+
